@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spam Email Classifier</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f; --surface: #111118; --surface2: #18181f;
+      --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.13);
+      --text: #f0f0f5; --muted: #7a7a8e; --accent: #7c6af7; --accent2: #a78bfa;
+      --spam-color: #f87171; --safe-color: #34d399;
+      --spam-bg: rgba(248,113,113,0.08); --safe-bg: rgba(52,211,153,0.08);
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 20px 80px; }
+    .grid-bg { position: fixed; inset: 0; background-image: linear-gradient(rgba(124,106,247,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(124,106,247,0.03) 1px, transparent 1px); background-size: 48px 48px; pointer-events: none; z-index: 0; }
+    .glow { position: fixed; top: -200px; left: 50%; transform: translateX(-50%); width: 700px; height: 400px; background: radial-gradient(ellipse, rgba(124,106,247,0.12) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+    .container { position: relative; z-index: 1; width: 100%; max-width: 680px; display: flex; flex-direction: column; gap: 28px; }
+    header { text-align: center; padding: 20px 0 8px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(124,106,247,0.12); border: 1px solid rgba(124,106,247,0.25); color: var(--accent2); font-size: 12px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 14px; border-radius: 100px; margin-bottom: 20px; }
+    .badge-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)} }
+    h1 { font-family: 'Syne', sans-serif; font-size: clamp(32px, 5vw, 52px); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; background: linear-gradient(135deg, #f0f0f5 30%, #a78bfa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 12px; }
+    header p { color: var(--muted); font-size: 15px; font-weight: 300; line-height: 1.6; }
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; }
+    .stat-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
+    .stat-value { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 700; color: var(--text); }
+    .stat-value.accent { color: var(--accent2); }
+    .main-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; overflow: visible; }
+    .card-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+    .card-header-icon { width: 32px; height: 32px; background: rgba(124,106,247,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+    .card-header-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 600; color: var(--text); }
+    .card-header-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .card-body { padding: 24px; }
+
+    .nlp-steps { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+    .nlp-row { display: flex; align-items: center; gap: 10px; }
+    .nlp-num { width: 22px; height: 22px; border-radius: 50%; background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3); color: var(--accent2); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nlp-name { font-size: 13px; color: var(--muted); font-weight: 400; flex: 1; }
+
+    .info-dot { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 10px; font-weight: 700; cursor: pointer; flex-shrink: 0; transition: background 0.2s; user-select: none; }
+    .info-dot:hover { background: rgba(124,106,247,0.35); border-color: rgba(124,106,247,0.5); }
+
+    .tooltip { display: none; position: absolute; bottom: calc(100% + 12px); right: 0; width: 270px; background: #1a1a28; border: 1px solid rgba(124,106,247,0.35); border-radius: 14px; padding: 16px; z-index: 9999; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
+    .tooltip.show { display: block; animation: fadeUp 0.2s ease; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)} }
+    .tooltip::after { content:''; position:absolute; top:100%; right:6px; border:6px solid transparent; border-top-color: rgba(124,106,247,0.35); }
+    .tooltip-title { font-family:'Syne',sans-serif; font-size:13px; font-weight:700; color:var(--accent2); margin-bottom:8px; }
+    .tooltip-body { font-size:12px; color:#a0a0b8; line-height:1.65; }
+    .tooltip-tag { display:inline-block; background:rgba(124,106,247,0.15); border:1px solid rgba(124,106,247,0.25); color:var(--accent2); font-size:10px; padding:3px 9px; border-radius:100px; margin-top:8px; font-weight:500; font-family:'DM Sans',monospace; letter-spacing:0.03em; }
+
+    textarea { width:100%; min-height:140px; background:var(--surface2); border:1px solid var(--border2); border-radius:12px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:15px; font-weight:300; line-height:1.7; padding:16px; resize:vertical; outline:none; transition:border-color 0.2s; }
+    textarea::placeholder { color:var(--muted); }
+    textarea:focus { border-color:rgba(124,106,247,0.5); }
+    .char-count { text-align:right; font-size:12px; color:var(--muted); margin-top:8px; }
+    .btn-row { display:flex; gap:10px; margin-top:16px; }
+    .btn-analyze { flex:1; background:var(--accent); color:#fff; font-family:'Syne',sans-serif; font-size:15px; font-weight:600; border:none; border-radius:10px; padding:14px 24px; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:8px; }
+    .btn-analyze:hover { background:#9079f9; transform:translateY(-1px); }
+    .btn-analyze:active { transform:translateY(0); }
+    .btn-analyze:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+    .btn-clear { background:var(--surface2); color:var(--muted); font-family:'DM Sans',sans-serif; font-size:14px; border:1px solid var(--border2); border-radius:10px; padding:14px 20px; cursor:pointer; transition:all 0.2s; }
+    .btn-clear:hover { color:var(--text); }
+
+    .result-section { display:none; margin-top:20px; padding-top:20px; border-top:1px solid var(--border); }
+    .result-section.visible { display:block; animation:fadeUp 0.4s ease; }
+    .result-main { display:flex; align-items:center; gap:16px; padding:20px; border-radius:14px; margin-bottom:16px; border:1px solid transparent; }
+    .result-main.spam { background:var(--spam-bg); border-color:rgba(248,113,113,0.2); }
+    .result-main.safe { background:var(--safe-bg); border-color:rgba(52,211,153,0.2); }
+    .result-icon { width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
+    .result-icon.spam { background:rgba(248,113,113,0.15); }
+    .result-icon.safe { background:rgba(52,211,153,0.15); }
+    .result-label { font-family:'Syne',sans-serif; font-size:28px; font-weight:800; line-height:1; margin-bottom:4px; }
+    .result-label.spam { color:var(--spam-color); }
+    .result-label.safe { color:var(--safe-color); }
+    .result-desc { font-size:13px; color:var(--muted); line-height:1.5; }
+    .metrics-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .metric-box { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+    .metric-box-label { font-size:11px; text-transform:uppercase; letter-spacing:0.07em; color:var(--muted); font-weight:500; margin-bottom:8px; }
+    .metric-bar-track { height:6px; background:rgba(255,255,255,0.06); border-radius:100px; overflow:hidden; margin-bottom:6px; }
+    .metric-bar-fill { height:100%; border-radius:100px; transition:width 0.8s cubic-bezier(0.16,1,0.3,1); }
+    .metric-bar-fill.confidence { background:var(--accent); }
+    .metric-bar-fill.accuracy { background:var(--safe-color); }
+    .metric-value { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; }
+
+    .examples-card { background:var(--surface); border:1px solid var(--border); border-radius:20px; overflow:hidden; }
+    .example-item { padding:14px 24px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.15s; display:flex; align-items:center; gap:12px; }
+    .example-item:hover { background:var(--surface2); }
+    .example-tag { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; padding:3px 9px; border-radius:100px; flex-shrink:0; min-width:50px; text-align:center; }
+    .example-tag.spam { background:rgba(248,113,113,0.12); color:var(--spam-color); border:1px solid rgba(248,113,113,0.2); }
+    .example-tag.safe { background:rgba(52,211,153,0.12); color:var(--safe-color); border:1px solid rgba(52,211,153,0.2); }
+    .example-text { font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+    .hidden-examples { display:none; }
+    .hidden-examples.expanded { display:block; }
+    .try-more-btn { width:100%; padding:14px 24px; background:transparent; border:none; border-top:1px solid var(--border); color:var(--accent2); font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; cursor:pointer; transition:background 0.15s; display:flex; align-items:center; justify-content:center; gap:6px; }
+    .try-more-btn:hover { background:var(--surface2); }
+    .spinner { width:18px; height:18px; border:2px solid rgba(255,255,255,0.3); border-top-color:white; border-radius:50%; animation:spin 0.7s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    footer { text-align:center; color:var(--muted); font-size:12px; margin-top:12px; }
+    footer span { color:var(--accent2); }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="glow"></div>
+  <div class="container">
+
+    <header>
+      <div class="badge"><div class="badge-dot"></div>NLP — Naive Bayes Model</div>
+      <h1>Spam Email<br>Classifier</h1>
+      <p>Paste any email or SMS message below.<br>Our NLP model will detect if it's spam instantly.</p>
+    </header>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Model Accuracy</div>
+        <div class="stat-value accent" id="accuracy-stat">98.2%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Training Data</div>
+        <div class="stat-value">5,572</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Algorithm</div>
+        <div class="stat-value" style="font-size:15px;padding-top:4px;">Naive Bayes</div>
+      </div>
+    </div>
+
+    <div class="main-card">
+      <div class="card-header">
+        <div class="card-header-icon">✉️</div>
+        <div>
+          <div class="card-header-title">Analyze Message</div>
+          <div class="card-header-sub">Paste email or SMS content below</div>
+        </div>
+      </div>
+      <div class="card-body">
+
+        <div class="nlp-steps">
+          <div class="nlp-row">
+            <div class="nlp-num">1</div>
+            <div class="nlp-name">Text Preprocessing</div>
+            <div class="info-dot" onclick="toggleTip('tip1')">i
+              <div class="tooltip" id="tip1">
+                <div class="tooltip-title">Text Preprocessing</div>
+                <div class="tooltip-body">Raw message is cleaned before analysis. Converted to lowercase, punctuation removed, only alphabetic words kept. "FREE!" and "free" become the same word.<br><br>Example: "WIN £1000 NOW!!!" → "win 1000 now"</div>
+                <span class="tooltip-tag">NLP Step 1</span>
+              </div>
+            </div>
+          </div>
+          <div class="nlp-row">
+            <div class="nlp-num">2</div>
+            <div class="nlp-name">Tokenization</div>
+            <div class="info-dot" onclick="toggleTip('tip2')">i
+              <div class="tooltip" id="tip2">
+                <div class="tooltip-title">Tokenization</div>
+                <div class="tooltip-body">The message is split into individual words called tokens using NLTK's word_tokenize().<br><br>"Win free prize now" → ["Win", "free", "prize", "now"]<br><br>Each token is processed separately by the model.</div>
+                <span class="tooltip-tag">nltk.word_tokenize()</span>
+              </div>
+            </div>
+          </div>
+          <div class="nlp-row">
+            <div class="nlp-num">3</div>
+            <div class="nlp-name">Stop Words Removal</div>
+            <div class="info-dot" onclick="toggleTip('tip3')">i
+              <div class="tooltip" id="tip3">
+                <div class="tooltip-title">Stop Words Removal</div>
+                <div class="tooltip-body">Common words like "the", "is", "a", "an", "and" are removed — they appear in every message and add no value for spam detection.<br><br>NLTK has 179 built-in English stop words.<br><br>"this is a free offer" → "free offer"</div>
+                <span class="tooltip-tag">nltk.corpus.stopwords</span>
+              </div>
+            </div>
+          </div>
+          <div class="nlp-row">
+            <div class="nlp-num">4</div>
+            <div class="nlp-name">Lemmatization</div>
+            <div class="info-dot" onclick="toggleTip('tip4')">i
+              <div class="tooltip" id="tip4">
+                <div class="tooltip-title">Lemmatization</div>
+                <div class="tooltip-body">Words are reduced to their root (lemma) form so different versions of a word are treated as one.<br><br>• "running" → "run"<br>• "prizes" → "prize"<br>• "winning" → "win"<br><br>Reduces vocabulary size and improves accuracy.</div>
+                <span class="tooltip-tag">WordNetLemmatizer</span>
+              </div>
+            </div>
+          </div>
+          <div class="nlp-row">
+            <div class="nlp-num">5</div>
+            <div class="nlp-name">Bag of Words (BOW)</div>
+            <div class="info-dot" onclick="toggleTip('tip5')">i
+              <div class="tooltip" id="tip5">
+                <div class="tooltip-title">Bag of Words</div>
+                <div class="tooltip-body">Message is converted into a number vector. Each position = one word from the top 3000 vocabulary. Value = how many times that word appears.<br><br>["free", "win", "prize"] → [1, 1, 1, 0, 0, ...]<br><br>Model reads numbers, not text.</div>
+                <span class="tooltip-tag">CountVectorizer</span>
+              </div>
+            </div>
+          </div>
+          <div class="nlp-row">
+            <div class="nlp-num">6</div>
+            <div class="nlp-name">Naive Bayes Classification</div>
+            <div class="info-dot" onclick="toggleTip('tip6')">i
+              <div class="tooltip" id="tip6">
+                <div class="tooltip-title">Naive Bayes Classifier</div>
+                <div class="tooltip-body">Calculates probability of spam vs not-spam based on which words appear. Learned from 5,572 labeled messages.<br><br>Logic: "if FREE + WIN appear together → high spam probability"<br><br>Output: SPAM or NOT SPAM + confidence %</div>
+                <span class="tooltip-tag">MultinomialNB</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <textarea id="msg-input" placeholder="e.g. Congratulations! You've won a FREE iPhone. Click now to claim your prize..."></textarea>
+        <div class="char-count"><span id="char-count">0</span> characters</div>
+        <div class="btn-row">
+          <button class="btn-analyze" id="analyze-btn" onclick="analyzeMessage()">
+            <span id="btn-text">Analyze Message</span>
+          </button>
+          <button class="btn-clear" onclick="clearAll()">Clear</button>
+        </div>
+
+        <div class="result-section" id="result-section">
+          <div class="result-main" id="result-main">
+            <div class="result-icon" id="result-icon"></div>
+            <div>
+              <div class="result-label" id="result-label"></div>
+              <div class="result-desc" id="result-desc"></div>
+            </div>
+          </div>
+          <div class="metrics-row">
+            <div class="metric-box">
+              <div class="metric-box-label">Confidence</div>
+              <div class="metric-bar-track"><div class="metric-bar-fill confidence" id="conf-bar" style="width:0%"></div></div>
+              <div class="metric-value" id="conf-val">–</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-box-label">Model Accuracy</div>
+              <div class="metric-bar-track"><div class="metric-bar-fill accuracy" id="acc-bar" style="width:0%"></div></div>
+              <div class="metric-value" id="acc-val">–</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="examples-card">
+      <div class="card-header">
+        <div class="card-header-icon">⚡</div>
+        <div>
+          <div class="card-header-title">Try These Examples</div>
+          <div class="card-header-sub">Click any message to test it instantly</div>
+        </div>
+      </div>
+      <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">Congratulations! You won a FREE iPhone. Click now to claim!</span></div>
+      <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Hey, are we still meeting tomorrow for lunch at 1pm?</span></div>
+      <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">URGENT! Your bank account is blocked. Call 0300-1234567 now!</span></div>
+      <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Your package has been shipped. Expected delivery: Thursday.</span></div>
+      <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">WIN £1000 cash! Text WIN to 87121 now. Free entry, T&C apply.</span></div>
+
+      <div class="hidden-examples" id="hidden-examples">
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Can you please call me when you get a chance?</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">You have been selected for a £500 Tesco gift card. Claim now!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Don't forget mom's birthday is this Sunday!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">Free ringtones! Reply MUSIC to 85023. 3 msgs/wk. Stop: txt STOP.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">The meeting has been rescheduled to 3pm tomorrow.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">WINNER!! As a valued customer you have been selected to receive a £900 prize!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">I'll be home by 7. Can you start dinner?</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">Claim your FREE holiday voucher. Text HOLIDAY to 80488 now.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Your appointment is confirmed for Monday 10am. Reply YES to confirm.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">You owe £2,500. FINAL NOTICE. Avoid legal action, call us NOW.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Thanks for dinner last night, it was really lovely!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">As a mobile customer you are entitled to a FREE upgrade. Call 0800 now!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Can you send me the notes from today's lecture please?</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">SIX chances to WIN CASH! Reply YES to 80062 for your chance!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Running a bit late, will be there in 15 minutes.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">Congratulations on your new number! Free prize inside. Click here.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Your bank statement is ready to view online.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">Get a loan of £1000 approved instantly! No credit check needed.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Hey! Long time no see. How have you been?</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">You have won a 2 week holiday to Spain! Call 09061743811 now!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">The project deadline has been extended to next Friday.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">Your mobile number has been awarded a £2000 prize. Claim before midnight!</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Please bring your ID and documents to the interview tomorrow.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag spam">Spam</span><span class="example-text">PRIVATE! Want to talk? Call 09095350301 now. Cost 150p/min 18+.</span></div>
+        <div class="example-item" onclick="tryExample(this)"><span class="example-tag safe">Safe</span><span class="example-text">Good morning! Hope you have a great day today.</span></div>
+      </div>
+
+      <button class="try-more-btn" onclick="toggleMore()">
+        <span id="try-more-text">+ Try 25 More Examples</span>
+      </button>
+    </div>
+
+    <footer>Built with <span>NLTK + Scikit-learn</span> · NLP Project · Naive Bayes Classifier</footer>
+  </div>
+
+  <script>
+    const input = document.getElementById('msg-input');
+    input.addEventListener('input', () => {
+      document.getElementById('char-count').textContent = input.value.length;
+    });
+
+    fetch('/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'test' })
+    }).then(r => r.json()).then(d => {
+      if (d.model_accuracy) document.getElementById('accuracy-stat').textContent = d.model_accuracy + '%';
+    }).catch(() => {});
+
+    function toggleTip(id) {
+      document.querySelectorAll('.tooltip').forEach(t => {
+        if (t.id !== id) t.classList.remove('show');
+      });
+      document.getElementById(id).classList.toggle('show');
+    }
+
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.info-dot')) {
+        document.querySelectorAll('.tooltip').forEach(t => t.classList.remove('show'));
+      }
+    });
+
+    function toggleMore() {
+      const hidden = document.getElementById('hidden-examples');
+      const expanded = hidden.classList.toggle('expanded');
+      document.getElementById('try-more-text').textContent = expanded ? '− Show Less' : '+ Try 25 More Examples';
+    }
+
+    function tryExample(el) {
+      const text = el.querySelector('.example-text').textContent;
+      input.value = text;
+      document.getElementById('char-count').textContent = text.length;
+      analyzeMessage();
+      document.querySelector('.main-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function clearAll() {
+      input.value = '';
+      document.getElementById('char-count').textContent = '0';
+      document.getElementById('result-section').classList.remove('visible');
+    }
+
+    async function analyzeMessage() {
+      const msg = input.value.trim();
+      if (!msg) { input.focus(); return; }
+      const btn = document.getElementById('analyze-btn');
+      const btnText = document.getElementById('btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<div class="spinner"></div>';
+      try {
+        const res = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg })
+        });
+        const data = await res.json();
+        showResult(data);
+      } catch (e) {
+        alert('Server not running. Run: python3 app.py');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Analyze Message';
+      }
+    }
+
+    function showResult(data) {
+      const isSpam = data.result === 'spam';
+      const section = document.getElementById('result-section');
+      document.getElementById('result-main').className = 'result-main ' + (isSpam ? 'spam' : 'safe');
+      document.getElementById('result-icon').className = 'result-icon ' + (isSpam ? 'spam' : 'safe');
+      document.getElementById('result-icon').textContent = isSpam ? '🚨' : '✅';
+      const lbl = document.getElementById('result-label');
+      lbl.className = 'result-label ' + (isSpam ? 'spam' : 'safe');
+      lbl.textContent = isSpam ? 'SPAM DETECTED' : 'NOT SPAM';
+      document.getElementById('result-desc').textContent = isSpam
+        ? 'This message shows strong spam indicators. Do not click any links.'
+        : 'This message appears to be legitimate. No spam patterns detected.';
+      document.getElementById('conf-bar').style.width = data.confidence + '%';
+      document.getElementById('conf-val').textContent = data.confidence + '%';
+      document.getElementById('acc-bar').style.width = data.model_accuracy + '%';
+      document.getElementById('acc-val').textContent = data.model_accuracy + '%';
+      document.getElementById('accuracy-stat').textContent = data.model_accuracy + '%';
+      section.classList.add('visible');
+      section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  </script>
+</body>
+</html>
